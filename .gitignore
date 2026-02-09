@@ -1,0 +1,48 @@
+# Build artifacts
+build/
+*.o
+*.a
+*.so
+*.dylib
+
+# Compiled binaries
+packet_analyzer
+test_basic
+
+# Debug files
+*.dSYM/
+*.su
+*.gch
+*.pch
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# System files
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+
+# Python/virtual environments
+__pycache__/
+venv/
+.env
+
+# Copilot and AI-related files (intentionally not included)
+.github/copilot-instructions.md
+copilot-instructions.md
+
+# CMake
+CMakeLists.txt.user
+cmake_install.cmake
+CMakeCache.txt
