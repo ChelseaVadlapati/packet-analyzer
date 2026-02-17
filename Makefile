@@ -1,11 +1,15 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -fPIC
-CFLAGS_DEBUG = -Wall -Wextra -g -DDEBUG
+CFLAGS = -Wall -Wextra -O2 -fPIC -std=c11
+CFLAGS_DEBUG = -Wall -Wextra -g -DDEBUG -std=c11
 INCLUDES = -I./include
 LIBS = -lpthread
 
+# Get git SHA for build metadata
+GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+CFLAGS += -DGIT_SHA=\"$(GIT_SHA)\"
+
 # Source files
-SOURCES = src/main.c src/packet.c src/logger.c src/thread_pool.c src/buffer.c src/parser.c src/socket_handler.c
+SOURCES = src/main.c src/packet.c src/logger.c src/thread_pool.c src/buffer.c src/parser.c src/socket_handler.c src/metrics.c src/regression.c
 OBJECTS = $(SOURCES:.c=.o)
 TARGET = build/packet_analyzer
 
@@ -47,6 +51,31 @@ help:
 	@echo "  clean     - Remove build artifacts"
 	@echo "  run       - Build and run on eth0 (requires sudo)"
 	@echo "  run-if    - Build and run with custom interface (requires sudo)"
+	@echo "  test      - Run unit tests"
+	@echo "  test-regression - Run regression validation tests"
 	@echo "  help      - Display this message"
 
-.PHONY: all debug clean run run-if help
+# Unit tests
+TEST_SOURCES = src/packet.c src/logger.c src/thread_pool.c src/buffer.c src/parser.c src/socket_handler.c src/metrics.c src/regression.c
+TEST_BASIC_TARGET = build/test_basic
+TEST_REGRESSION_TARGET = build/test_regression
+
+test: test-basic test-regression
+
+test-basic: $(TEST_BASIC_TARGET)
+	./$(TEST_BASIC_TARGET)
+
+$(TEST_BASIC_TARGET): tests/test_basic.c $(TEST_SOURCES)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+	@echo "Built: $@"
+
+test-regression: $(TEST_REGRESSION_TARGET)
+	./$(TEST_REGRESSION_TARGET)
+
+$(TEST_REGRESSION_TARGET): tests/test_regression.c $(TEST_SOURCES)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ $(LIBS)
+	@echo "Built: $@"
+
+.PHONY: all debug clean run run-if help test test-basic test-regression

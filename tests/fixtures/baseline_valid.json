@@ -1,0 +1,43 @@
+{
+  "timestamp": "1000000.000",
+  "elapsed_sec": 10.0,
+  "capture_elapsed_sec": 10.0,
+  "packets": {
+    "captured": 500,
+    "processed": 500,
+    "rate_pps": 50.0
+  },
+  "bytes": {
+    "captured": 50000,
+    "processed": 50000,
+    "rate_mbps": 0.005
+  },
+  "errors": {
+    "parse_errors": 0,
+    "checksum_failures": 0,
+    "queue_drops": 0,
+    "capture_drops": 0
+  },
+  "latency_ns": {
+    "count": 500,
+    "sum": 25000000,
+    "avg": 50000,
+    "max": 100000,
+    "p50": 40000,
+    "p95": 80000,
+    "p99": 90000
+  },
+  "metadata": {
+    "interface": "en0",
+    "filter": "icmp",
+    "threads": 4,
+    "bpf_buffer_size": 131072,
+    "duration_sec": 20,
+    "warmup_sec": 2,
+    "traffic_mode": "icmp",
+    "traffic_target": "8.8.8.8",
+    "traffic_rate": 50,
+    "os": "Darwin",
+    "git_sha": "abc1234"
+  }
+}

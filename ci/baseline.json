@@ -1,0 +1,92 @@
+{
+  "timestamp": "2827242.412",
+  "elapsed_sec": 10.697,
+  "capture_elapsed_sec": 10.192,
+  "packets": {
+    "captured": 890,
+    "processed": 891,
+    "rate_pps": 87.42
+  },
+  "bytes": {
+    "captured": 87420,
+    "processed": 87518,
+    "rate_mbps": 0.0082
+  },
+  "errors": {
+    "parse_errors": 0,
+    "checksum_failures": 0,
+    "queue_drops": 0,
+    "capture_drops": 0
+  },
+  "ethertype": {
+    "ipv4": 879,
+    "ipv6": 12,
+    "arp": 0,
+    "other": 0
+  },
+  "protocols": {
+    "tcp": 0,
+    "udp": 0,
+    "icmp": 891,
+    "other": 0
+  },
+  "queue": {
+    "depth_max": 2
+  },
+  "latency_ns": {
+    "count": 891,
+    "sum": 39519000,
+    "avg": 44353,
+    "max": 670000,
+    "p50": 24000,
+    "p95": 48000,
+    "p99": 96000
+  },
+  "latency_histogram": [
+    0,
+    0,
+    0,
+    11,
+    362,
+    400,
+    92,
+    21,
+    3,
+    2,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "metadata": {
+    "interface": "en0",
+    "filter": "icmp",
+    "threads": 4,
+    "bpf_buffer_size": 131072,
+    "duration_sec": 20,
+    "warmup_sec": 2,
+    "traffic_mode": "icmp",
+    "traffic_target": "8.8.8.8",
+    "traffic_rate": 50,
+    "os": "Darwin",
+    "git_sha": "a66d88e"
+  }
+}

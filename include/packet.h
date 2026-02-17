@@ -48,7 +48,8 @@ typedef struct {
 
 /* Captured Packet Structure */
 typedef struct {
-    time_t timestamp;           /* Packet capture timestamp */
+    time_t timestamp;           /* Packet capture timestamp (wall clock) */
+    uint64_t capture_ts_ns;     /* High-resolution capture timestamp (CLOCK_MONOTONIC, ns) */
     uint32_t packet_length;     /* Total packet length */
     uint8_t *raw_data;          /* Raw packet data */
     

@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include "packet.h"
 #include "logger.h"
+#include "metrics.h"
 
 packet_t* packet_create(uint8_t *raw_data, uint32_t length) {
     if (raw_data == NULL || length == 0) {
@@ -26,6 +27,7 @@ packet_t* packet_create(uint8_t *raw_data, uint32_t length) {
     memcpy(packet->raw_data, raw_data, length);
     packet->packet_length = length;
     packet->timestamp = time(NULL);
+    packet->capture_ts_ns = metrics_now_ns();  /* High-resolution capture timestamp */
     
     packet->ethernet = NULL;
     packet->ipv4 = NULL;

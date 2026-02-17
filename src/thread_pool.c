@@ -1,8 +1,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <arpa/inet.h>
 #include "thread_pool.h"
 #include "logger.h"
+#include "metrics.h"
 
 static void* thread_worker(void *arg) {
     thread_pool_t *pool = (thread_pool_t *)arg;
@@ -33,6 +35,36 @@ static void* thread_worker(void *arg) {
             packet_parse(item->packet);
             packet_print(item->packet);
             pool->packets_processed++;
+            
+            /* Only record metrics during measurement phase (after warmup) */
+            if (metrics_is_active()) {
+                /* Record EtherType metrics (with safe NULL check) */
+                if (item->packet->ethernet != NULL) {
+                    /* EtherType is stored in network byte order, convert to host */
+                    uint16_t ethertype = ntohs(item->packet->ethernet->ethertype);
+                    metrics_record_ethertype(ethertype);
+                    
+                    /* Record L4 protocol metrics */
+                    if (ethertype == 0x0800 && item->packet->ipv4 != NULL) {
+                        /* IPv4 packet - record IP protocol */
+                        metrics_record_protocol(item->packet->ipv4->protocol);
+                    } else if (ethertype == 0x86DD && item->packet->raw_data != NULL && 
+                               item->packet->packet_length >= 14 + 40) {
+                        /* IPv6 packet - next header is at offset 14 + 6 = 20 */
+                        uint8_t next_header = item->packet->raw_data[14 + 6];
+                        metrics_record_protocol(next_header);
+                    }
+                }
+                
+                /* Calculate and record end-to-end latency */
+                uint64_t now_ns = metrics_now_ns();
+                uint64_t latency_ns = now_ns - item->packet->capture_ts_ns;
+                metrics_observe_latency(latency_ns);
+                
+                /* Record processed packet metrics */
+                metrics_inc_processed(item->packet->packet_length);
+            }
+            
             logger_debug("Processed packet (Total: %d)", pool->packets_processed);
         }
 
@@ -135,6 +167,7 @@ int thread_pool_enqueue(thread_pool_t *pool, packet_t *packet) {
         logger_warn("Work queue is full (%d items)", pool->queue_size);
         pthread_mutex_unlock(&pool->queue_lock);
         free(item);
+        metrics_inc_queue_drops();  /* Track queue drop */
         return -1;
     }
 
@@ -145,6 +178,9 @@ int thread_pool_enqueue(thread_pool_t *pool, packet_t *packet) {
     }
     pool->queue_tail = item;
     pool->queue_size++;
+    
+    /* Update queue depth maximum watermark */
+    metrics_update_queue_depth_max((uint32_t)pool->queue_size);
 
     pthread_cond_signal(&pool->queue_cond);
     pthread_mutex_unlock(&pool->queue_lock);

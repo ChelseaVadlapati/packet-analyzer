@@ -1,0 +1,85 @@
+name: Performance Regression Gate
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  perf:
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show macOS info
+        run: |
+          sw_vers
+          uname -a
+          sysctl -n hw.ncpu
+
+      - name: Detect primary network interface
+        id: netif
+        shell: bash
+        run: |
+          IFACE=$(route -n get 8.8.8.8 2>/dev/null | awk '/interface:/{print $2; exit}')
+          if [ -z "$IFACE" ]; then
+            IFACE=$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')
+          fi
+          if [ -z "$IFACE" ]; then
+            echo "Could not detect interface" >&2
+            exit 1
+          fi
+          echo "iface=$IFACE" >> "$GITHUB_OUTPUT"
+          echo "Using interface: $IFACE"
+
+      - name: Build
+        shell: bash
+        run: |
+          make clean
+          make -j
+
+      - name: Baseline metadata sanity check (traffic + warmup + measure)
+        shell: bash
+        run: |
+          test -f ci/baseline.json || (echo "Missing ci/baseline.json. Commit a baseline first." && exit 1)
+          python3 - <<'PY'
+          import json, sys
+          d=json.load(open("ci/baseline.json"))
+          md=d.get("metadata",{})
+          required=["traffic_mode","traffic_target","traffic_rate","warmup_sec"]
+          missing=[k for k in required if k not in md]
+          if missing:
+              print("Baseline missing metadata keys:", missing)
+              sys.exit(1)
+          print("Baseline metadata OK:", {k: md[k] for k in required})
+          PY
+
+      - name: Run performance gate (deterministic traffic, multi-run median)
+        shell: bash
+        run: |
+          IFACE="${{ steps.netif.outputs.iface }}"
+
+          # Keep this command stable to keep your baseline valid.
+          # --traffic icmp + --traffic-rate ensures you hit min packet count reliably.
+          sudo ./build/packet_analyzer \
+            -i "$IFACE" --icmp \
+            --traffic icmp --traffic-target 8.8.8.8 --traffic-rate 50 \
+            --warmup-sec 2 --measure-sec 10 \
+            --min-packets 200 --runs 5 \
+            --baseline ci/baseline.json \
+            --fail-on-regression \
+            --metrics-json ci/current.json | tee ci/perf.log
+
+      - name: Upload perf artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-artifacts
+          path: |
+            ci/perf.log
+            ci/current.json
+            ci/baseline.json
