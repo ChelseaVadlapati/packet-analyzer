@@ -2,18 +2,24 @@ name: Performance Regression Gate
 
 on:
   push:
-    branches: ["main", "master"]
+    branches: ["main"]
   pull_request:
   workflow_dispatch:
 
 jobs:
-  perf:
+  performance-gate:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+
+    env:
+      # Analyzer command (keep stable to maintain valid baselines)
+      ANALYZER_ARGS: "--icmp --traffic icmp --traffic-target 8.8.8.8 --traffic-rate 50 --warmup-sec 2 --measure-sec 10 --min-packets 200 --runs 5"
 
     steps:
-      - name: Checkout
+      - name: Checkout HEAD commit
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Show macOS info
         run: |
@@ -36,50 +42,125 @@ jobs:
           echo "iface=$IFACE" >> "$GITHUB_OUTPUT"
           echo "Using interface: $IFACE"
 
-      - name: Build
+      - name: Determine BASE and HEAD commits
+        id: commits
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.sha }}"
+            echo "is_pr=true" >> "$GITHUB_OUTPUT"
+          else
+            # For workflow_dispatch, compare against HEAD~1 or just run once
+            BASE="${{ github.sha }}"
+            HEAD="${{ github.sha }}"
+            echo "is_pr=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+          echo "BASE commit: $BASE"
+          echo "HEAD commit: $HEAD"
+
+      # ─────────────────────────────────────────────────────────────────────
+      # STEP 1: Build and run baseline from BASE commit (PR only)
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Checkout BASE commit for baseline
+        if: steps.commits.outputs.is_pr == 'true'
+        shell: bash
+        run: |
+          echo "Checking out BASE: ${{ steps.commits.outputs.base }}"
+          git checkout ${{ steps.commits.outputs.base }}
+
+      - name: Build baseline (BASE commit)
+        if: steps.commits.outputs.is_pr == 'true'
         shell: bash
         run: |
           make clean
           make -j
+          test -f ./build/packet_analyzer || (echo "Build failed" && exit 1)
 
-      - name: Baseline metadata sanity check (traffic + warmup + measure)
+      - name: Generate baseline metrics (BASE commit)
+        if: steps.commits.outputs.is_pr == 'true'
         shell: bash
         run: |
-          test -f ci/baseline.json || (echo "Missing ci/baseline.json. Commit a baseline first." && exit 1)
-          python3 - <<'PY'
-          import json, sys
-          d=json.load(open("ci/baseline.json"))
-          md=d.get("metadata",{})
-          required=["traffic_mode","traffic_target","traffic_rate","warmup_sec"]
-          missing=[k for k in required if k not in md]
-          if missing:
-              print("Baseline missing metadata keys:", missing)
-              sys.exit(1)
-          print("Baseline metadata OK:", {k: md[k] for k in required})
-          PY
+          mkdir -p ci
+          IFACE="${{ steps.netif.outputs.iface }}"
+          echo "Running baseline on interface: $IFACE"
+          sudo ./build/packet_analyzer \
+            -i "$IFACE" ${{ env.ANALYZER_ARGS }} \
+            --metrics-json ci/baseline.json 2>&1 | tee ci/baseline.log
+          echo "Baseline generated:"
+          jq '.metadata' ci/baseline.json || cat ci/baseline.json
 
-      - name: Run performance gate (deterministic traffic, multi-run median)
+      - name: Preserve baseline artifacts before HEAD checkout
+        if: steps.commits.outputs.is_pr == 'true'
+        shell: bash
+        run: |
+          cp ci/baseline.json /tmp/baseline.json
+          cp ci/baseline.log  /tmp/baseline.log
+
+      # ─────────────────────────────────────────────────────────────────────
+      # STEP 2: Build and run current from HEAD commit
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Checkout HEAD commit
+        if: steps.commits.outputs.is_pr == 'true'
+        shell: bash
+        run: |
+          echo "Checking out HEAD: ${{ steps.commits.outputs.head }}"
+          git checkout ${{ steps.commits.outputs.head }}
+
+      - name: Restore baseline artifacts
+        if: steps.commits.outputs.is_pr == 'true'
+        shell: bash
+        run: |
+          mkdir -p ci
+          cp /tmp/baseline.json ci/baseline.json
+          cp /tmp/baseline.log  ci/baseline.log
+          echo "Baseline restored after HEAD checkout"
+
+      - name: Build current (HEAD commit)
+        shell: bash
+        run: |
+          make clean
+          make -j
+          test -f ./build/packet_analyzer || (echo "Build failed" && exit 1)
+
+      - name: Run performance gate (compare against baseline)
+        if: steps.commits.outputs.is_pr == 'true'
         shell: bash
         run: |
           IFACE="${{ steps.netif.outputs.iface }}"
-
-          # Keep this command stable to keep your baseline valid.
-          # --traffic icmp + --traffic-rate ensures you hit min packet count reliably.
+          echo "Running performance gate on interface: $IFACE"
+          echo "Comparing HEAD against BASE baseline..."
+          
+          # Exit codes: 0=success, 2=regression, 3=insufficient samples, 4=config mismatch
           sudo ./build/packet_analyzer \
-            -i "$IFACE" --icmp \
-            --traffic icmp --traffic-target 8.8.8.8 --traffic-rate 50 \
-            --warmup-sec 2 --measure-sec 10 \
-            --min-packets 200 --runs 5 \
+            -i "$IFACE" ${{ env.ANALYZER_ARGS }} \
             --baseline ci/baseline.json \
             --fail-on-regression \
-            --metrics-json ci/current.json | tee ci/perf.log
+            --metrics-json ci/current.json 2>&1 | tee ci/perf.log
 
-      - name: Upload perf artifacts
+      - name: Run single measurement (non-PR)
+        if: steps.commits.outputs.is_pr != 'true'
+        shell: bash
+        run: |
+          mkdir -p ci
+          IFACE="${{ steps.netif.outputs.iface }}"
+          echo "Running single measurement on interface: $IFACE"
+          sudo ./build/packet_analyzer \
+            -i "$IFACE" ${{ env.ANALYZER_ARGS }} \
+            --metrics-json ci/current.json 2>&1 | tee ci/perf.log
+          # Copy as baseline for artifact consistency
+          cp ci/current.json ci/baseline.json
+          touch ci/baseline.log
+
+      - name: Upload performance artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: perf-artifacts
           path: |
-            ci/perf.log
-            ci/current.json
             ci/baseline.json
+            ci/current.json
+            ci/baseline.log
+            ci/perf.log
